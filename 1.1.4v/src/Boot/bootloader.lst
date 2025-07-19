@@ -1,0 +1,641 @@
+     1                                  [org 0x7C00] ; BIOS loads boot sector at 0x7C00
+     2                                  [bits 16] ; Stating real mode (16 bits)
+     3                                  
+     4                                  ; jumping to the start of the bootloader to avoid overwriting by the includes or msgs
+     5 00000000 E9DD00                  jmp RealMod
+     6 00000003 90                      nop
+     7                                  
+     8                                  ; Include
+     9                                  %include "16-bit/print.asm"
+    10                              <1> [bits 16]
+    11                              <1> 
+    12                              <1> ; How to print:
+    13                              <1> ; msg_hello_world: db `\r\nHello World, from the BIOS!\r\n`, 0
+    14                              <1> ; mov bx, msg_hello_world
+    15                              <1> ; call Printf
+    16                              <1> Printf:
+    17                              <1> 
+    18                              <1>     ; I will use ax and bx so i save then befor using
+    19 00000004 50                  <1>     push ax
+    20 00000005 53                  <1>     push bx
+    21                              <1> 
+    22                              <1>     ; 0x0E is a BIOS utilities to set int 0x10 to print
+    23 00000006 B40E                <1>     mov ah, 0x0E
+    24                              <1>     
+    25                              <1>     printf_loop:
+    26                              <1>         ; Check is there is more char if the next value is 0 then jump to the end
+    27 00000008 803F00              <1>         cmp byte[bx], 0
+    28 0000000B 7407                <1>         je printf_end
+    29                              <1>         ; Give al the char and then print it
+    30 0000000D 8A07                <1>         mov al, byte[bx]
+    31 0000000F CD10                <1>         int 0x10
+    32                              <1>         ; jump to the next value then return on the loop
+    33 00000011 43                  <1>         inc bx
+    34 00000012 EBF4                <1>         jmp printf_loop
+    35                              <1>     printf_end:
+    36                              <1>         ; Pop the data back and then return
+    37 00000014 5B                  <1>         pop bx
+    38 00000015 58                  <1>         pop ax
+    39 00000016 C3                  <1>         ret
+    10                                  %include "16-bit/disk_reader.asm"
+    11                              <1> [bits 16]
+    12                              <1> 
+    13                              <1> ; Vars
+    14 00000017 536563746F7273204C- <1> success_msg: db "Sectors Loaded Successfully!", 0x0D, 0x0A, 0
+    14 00000020 6F6164656420537563- <1>
+    14 00000029 6365737366756C6C79- <1>
+    14 00000032 210D0A00            <1>
+    15 00000036 4552524F523A204C6F- <1> error_msg: db "ERROR: Loading Sectors Failed!", 0x0D, 0x0A, 0
+    15 0000003F 6164696E6720536563- <1>
+    15 00000048 746F7273204661696C- <1>
+    15 00000051 6564210D0A00        <1>
+    16                              <1> 
+    17                              <1> ReadDisk:
+    18 00000057 50                  <1>     push ax
+    19 00000058 53                  <1>     push bx
+    20 00000059 51                  <1>     push cx
+    21 0000005A 52                  <1>     push dx
+    22 0000005B 51                  <1>     push cx
+    23                              <1> 
+    24                              <1> 
+    25 0000005C B402                <1>     mov ah, 0x02                ; For the ATA Read bios utility              
+    26 0000005E 88C8                <1>     mov al, cl                  ; Number of sectors to read     
+    27 00000060 88D9                <1>     mov cl, bl                  ; Sector to load (bootloader was sector 1)
+    28 00000062 89D3                <1>     mov bx, dx                  ; Start location to read
+    29 00000064 B500                <1>     mov ch, 0x00                ; Cylinder
+    30 00000066 B600                <1>     mov dh, 0x00                ; Head
+    31 00000068 8A16[DF00]          <1>     mov dl, byte[boot_drive]    ; Boot drive
+    32                              <1> 
+    33 0000006C CD13                <1>     int 0x13    ; Call BIOS disk service
+    34                              <1> 
+    35 0000006E 720D                <1>     jc ReadDisk_error    ; Check read error
+    36                              <1> 
+    37 00000070 5B                  <1>     pop bx
+    38 00000071 38D8                <1>     cmp al, bl
+    39 00000073 7508                <1>     jne ReadDisk_error
+    40                              <1> 
+    41                              <1> 
+    42                              <1> ; ReadDisk_success:
+    43                              <1>     ; Print if success    mov bx, success_msg
+    44 00000075 E88CFF              <1>     call Printf
+    45                              <1> 
+    46                              <1>     ; Restore the registers
+    47 00000078 5A                  <1>     pop dx
+    48 00000079 59                  <1>     pop cx
+    49 0000007A 5B                  <1>     pop bx
+    50 0000007B 58                  <1>     pop ax
+    51                              <1> 
+    52 0000007C C3                  <1>     ret
+    53                              <1> 
+    54                              <1> 
+    55                              <1> ReadDisk_error:
+    56 0000007D BB[3600]            <1>     mov bx, error_msg
+    57 00000080 E881FF              <1>     call Printf
+    58                              <1> 
+    59 00000083 EBFE                <1>     jmp $
+    11                                  %include "16-bit/gdt.asm"
+    12                              <1> gdt_start:
+    13                              <1> 
+    14                              <1> ; Define the null sector for the 32 bit gdt
+    15                              <1> gdt_null:
+    16 00000085 00000000            <1>     dd 0x00000000           ; All values in null entry are 0
+    17 00000089 00000000            <1>     dd 0x00000000           ; All values in null entry are 0
+    18                              <1> 
+    19                              <1> ; Define the code sector for the 32 bit gdt
+    20                              <1> gdt_code:
+    21                              <1>     ; Base:     0x00000
+    22                              <1>     ; Limit:    0xFFFFF
+    23                              <1>     ; 1st Flags:        0b1001
+    24                              <1>     ;   Present:        1
+    25                              <1>     ;   Privelege:      00
+    26                              <1>     ;   Descriptor:     1
+    27                              <1>     ; Type Flags:       0b1010
+    28                              <1>     ;   Code:           1
+    29                              <1>     ;   Conforming:     0
+    30                              <1>     ;   Readable:       1
+    31                              <1>     ;   Accessed:       0
+    32                              <1>     ; 2nd Flags:        0b1100
+    33                              <1>     ;   Granularity:    1
+    34                              <1>     ;   32-bit Default: 1
+    35                              <1>     ;   64-bit Segment: 0
+    36                              <1>     ;   AVL:            0
+    37                              <1> 
+    38 0000008D FFFF                <1>     dw 0xFFFF           ; Limit (bits 0-15)
+    39 0000008F 0000                <1>     dw 0x0000           ; Base  (bits 0-15)
+    40 00000091 00                  <1>     db 0x00             ; Base  (bits 16-23)
+    41 00000092 9A                  <1>     db 0b10011010       ; 1st Flags, Type flags
+    42 00000093 CF                  <1>     db 0b11001111       ; 2nd Flags, Limit (bits 16-19)
+    43 00000094 00                  <1>     db 0x00             ; Base  (bits 24-31)
+    44                              <1> 
+    45                              <1> ; Define the data sector for the 32 bit gdt
+    46                              <1> gdt_data:
+    47                              <1>     ; Base:     0x00000
+    48                              <1>     ; Limit:    0xFFFFF
+    49                              <1>     ; 1st Flags:        0b1001
+    50                              <1>     ;   Present:        1
+    51                              <1>     ;   Privelege:      00
+    52                              <1>     ;   Descriptor:     1
+    53                              <1>     ; Type Flags:       0b0010
+    54                              <1>     ;   Code:           0
+    55                              <1>     ;   Expand Down:    0
+    56                              <1>     ;   Writeable:      1
+    57                              <1>     ;   Accessed:       0
+    58                              <1>     ; 2nd Flags:        0b1100
+    59                              <1>     ;   Granularity:    1
+    60                              <1>     ;   32-bit Default: 1
+    61                              <1>     ;   64-bit Segment: 0
+    62                              <1>     ;   AVL:            0
+    63                              <1> 
+    64 00000095 FFFF                <1>     dw 0xFFFF           ; Limit (bits 0-15)
+    65 00000097 0000                <1>     dw 0x0000           ; Base  (bits 0-15)
+    66 00000099 00                  <1>     db 0x00             ; Base  (bits 16-23)
+    67 0000009A 92                  <1>     db 0b10010010       ; 1st Flags, Type flags
+    68 0000009B CF                  <1>     db 0b11001111       ; 2nd Flags, Limit (bits 16-19)
+    69 0000009C 00                  <1>     db 0x00             ; Base  (bits 24-31)
+    70                              <1> 
+    71                              <1> gdt_end:
+    72                              <1> 
+    73                              <1> ; We will feed this structure to the CPU in order to set the protected mode GDT
+    74                              <1> gdt_descriptor:
+    75 0000009D 1700                <1>     dw gdt_end - gdt_start - 1       ; Size of GDT, one byte less than true size
+    76 0000009F [85000000]          <1>     dd gdt_start                     ; Start of the 32 bit gdt
+    77                              <1> 
+    78                              <1> ; Define helpers to find pointers to Code and Data segments
+    79                              <1> code_seg:   equ gdt_code - gdt_start
+    80                              <1> data_seg:   equ gdt_data - gdt_start
+    12                                  %include "16-bit/elevate.asm"
+    13                              <1> [bits 16]
+    14                              <1> 
+    15                              <1> ; This function set the CPU to protected mode
+    16                              <1> Elevate:
+    17                              <1>     
+    18 000000A3 E81500              <1>     call EnableA20
+    19                              <1> 
+    20 000000A6 FA                  <1>     cli ; Disable interrupts
+    21                              <1> 
+    22 000000A7 0F0116[9D00]        <1>     lgdt [gdt_descriptor]    ; Tell the CPU where is the GDT
+    23                              <1> 
+    24                              <1>     ; Enable 32-bit mode by setting bit 0 of the original control register
+    25 000000AC 0F20C0              <1>     mov eax, cr0
+    26 000000AF 6683C801            <1>     or eax, 0x00000001
+    27 000000B3 0F22C0              <1>     mov cr0, eax
+    28                              <1> 
+    29 000000B6 EA[B703]0800        <1>     jmp code_seg:ProtectedMod
+    30                              <1> 
+    31                              <1> EnableA20:
+    32 000000BB E492                <1>     in al, 0x92
+    33 000000BD 0C02                <1>     or al, 2
+    34 000000BF E692                <1>     out 0x92, al
+    35 000000C1 C3                  <1>     ret
+    13                                  
+    14                                  ; Vars
+    15 000000C2 48656C6C6F20576F72-     msg_rm: db "Hello World, In Real Mod!", 0x0D, 0x0A, 0
+    15 000000CB 6C642C20496E205265-
+    15 000000D4 616C204D6F64210D0A-
+    15 000000DD 00                 
+    16                                  
+    17 000000DE 00                      kernel_sectors: db 0
+    18 000000DF 00                      boot_drive: db 0x00
+    19                                  
+    20                                  RealMod:
+    21                                  	; set the poiters to the start
+    22 000000E0 BD0005                  	mov bp, 0x0500
+    23 000000E3 89EC                    	mov sp, bp
+    24                                  
+    25                                  	; Print
+    26 000000E5 BB[C200]                	mov bx, msg_rm
+    27 000000E8 E819FF                  	call Printf
+    28                                  
+    29 000000EB 8816[DF00]              	mov byte[boot_drive], dl 	; Saving the boot drive inorder to use it later on
+    30 000000EF BB0200                  	mov bx, 0x0002
+    31 000000F2 8B0E[DE00]              	mov cx, [kernel_sectors]
+    32 000000F6 83C102                  	add cx, 2
+    33 000000F9 BA007E                  	mov dx, 0x7E00
+    34                                  	
+    35 000000FC E858FF                  	call ReadDisk 	; Read the disk in order to get more then 512 bits
+    36                                  
+    37 000000FF E8A1FF                  	call Elevate
+    38                                  
+    39 00000102 EBFE                    	jmp $	; Infinite loop to halt the system
+    40                                  
+    41 00000104 00<rep FAh>             times 510 - ($ - $$) db 0x00 ; Set the rest of the 512-byte sector with 0s
+    42 000001FE 55AA                    dw 0xAA55 ; Boot signature
+    43                                  
+    44                                  
+    45                                  pm_entry_point:
+    46                                  [bits 32]
+    47                                  
+    48                                  ; Include
+    49                                  %include "32-bit/print.asm"
+    50                              <1> [bits 32]
+    51                              <1> 
+    52                              <1> ; Vars
+    53                              <1> vga_start:                  equ 0x000B8000
+    54                              <1> vga_extent:                 equ 80 * 25 * 2	; VGA Memory is 80 chars wide by 25 chars tall (one char is 2 bytes)
+    55                              <1> style_wb:                   equ 0x0F
+    56                              <1> 
+    57                              <1> ; Message address stored in esi
+    58                              <1> Printf_32:
+    59                              <1> 
+    60 00000200 60                  <1>     pusha
+    61 00000201 BA00800B00          <1>     mov edx, vga_start
+    62                              <1> 
+    63                              <1>     ; Do main loop
+    64                              <1>     Printf_loop:
+    65                              <1>         ; If char == \0, string is done
+    66 00000206 803E00              <1>         cmp byte[esi], 0
+    67 00000209 740F                <1>         je  Printf_done
+    68                              <1> 
+    69                              <1>         ; Move character to al, style to ah
+    70 0000020B 8A06                <1>         mov al, byte[esi]
+    71 0000020D B40F                <1>         mov ah, style_wb
+    72                              <1> 
+    73 0000020F 668902              <1>         mov word[edx], ax   ; Print character to vga memory location
+    74                              <1> 
+    75                              <1>         ; Increment counter registers
+    76 00000212 83C601              <1>         add esi, 1
+    77 00000215 83C202              <1>         add edx, 2
+    78                              <1> 
+    79 00000218 EBEC                <1>         jmp Printf_loop
+    80                              <1> 
+    81                              <1> Printf_done:
+    82 0000021A 61                  <1>     popa
+    83 0000021B C3                  <1>     ret
+    50                                  %include "32-bit/clear.asm"
+    51                              <1> [bits 32]
+    52                              <1> 
+    53                              <1> ; Vars
+    54                              <1> space_char: equ ` `
+    55                              <1> 
+    56                              <1> ; Clear the VGA memory
+    57                              <1> ClearVGA:
+    58 0000021C 60                  <1>     pusha
+    59                              <1> 
+    60                              <1>     ; Set up constants
+    61 0000021D BBA00F0000          <1>     mov ebx, vga_extent
+    62 00000222 B900800B00          <1>     mov ecx, vga_start
+    63 00000227 BA00000000          <1>     mov edx, 0
+    64                              <1> 
+    65                              <1>     ClearVGA_loop:
+    66 0000022C 39DA                <1>         cmp edx, ebx
+    67 0000022E 7D10                <1>         jge ClearVGA_done
+    68                              <1> 
+    69 00000230 52                  <1>         push edx    ; Free edx to use later
+    70                              <1> 
+    71                              <1>         ; Move character to al, style to ah
+    72 00000231 B020                <1>         mov al, space_char
+    73 00000233 B40F                <1>         mov ah, style_wb
+    74                              <1> 
+    75                              <1>         ; Print character to VGA memory
+    76 00000235 01CA                <1>         add edx, ecx
+    77 00000237 668902              <1>         mov word[edx], ax
+    78                              <1> 
+    79 0000023A 5A                  <1>         pop edx
+    80                              <1> 
+    81 0000023B 83C202              <1>         add edx,2   ; Increment counter
+    82                              <1> 
+    83 0000023E EBEC                <1>         jmp ClearVGA_loop
+    84                              <1> 
+    85                              <1> ClearVGA_done:
+    86 00000240 61                  <1>     popa
+    87 00000241 C3                  <1>     ret
+    51                                  
+    52                                  %include "32-bit/DLM.asm"
+    53 00000242 4552524F523A204C6F- <1> msg_lm_not_found:                   db `ERROR: Long mode not supported. Exiting...`, 0
+    53 0000024B 6E67206D6F6465206E- <1>
+    53 00000254 6F7420737570706F72- <1>
+    53 0000025D 7465642E2045786974- <1>
+    53 00000266 696E672E2E2E00      <1>
+    54                              <1> 
+    55                              <1> 
+    56                              <1> DetectLongMod:
+    57 0000026D B801000080          <1> 	mov eax, 0x80000001
+    58 00000272 0FA2                <1> 	cpuid
+    59 00000274 F7C200000020        <1> 	test edx, 1 << 29
+    60 0000027A 7401                <1> 	jz NoLongMode
+    61 0000027C C3                  <1> 	ret
+    62                              <1> 
+    63                              <1> NoLongMode:
+    64 0000027D E87E010000          <1>     call Clear_64
+    65 00000282 BE[42020000]        <1>     mov esi, msg_lm_not_found
+    66 00000287 E874FFFFFF          <1>     call Printf_32
+    67 0000028C F4                  <1> 	hlt
+    53                                  %include "32-bit/DCPUID.asm"
+    54 0000028D 4552524F523A204350- <1> msg_cpuid_not_found:                db `ERROR: CPUID unsupported, but required for long mode`, 0
+    54 00000296 55494420756E737570- <1>
+    54 0000029F 706F727465642C2062- <1>
+    54 000002A8 757420726571756972- <1>
+    54 000002B1 656420666F72206C6F- <1>
+    54 000002BA 6E67206D6F646500    <1>
+    55                              <1> 
+    56                              <1> 
+    57                              <1> DetectCPUID:
+    58 000002C2 9C                  <1> 	pushfd
+    59 000002C3 58                  <1> 	pop eax
+    60                              <1> 
+    61 000002C4 89C1                <1> 	mov ecx, eax
+    62                              <1> 
+    63 000002C6 3500002000          <1> 	xor eax, 1 << 21
+    64                              <1> 
+    65 000002CB 50                  <1> 	push eax
+    66 000002CC 9D                  <1> 	popfd
+    67                              <1> 	
+    68 000002CD 9C                  <1> 	pushfd
+    69 000002CE 58                  <1> 	pop eax
+    70                              <1> 
+    71 000002CF 51                  <1> 	push ecx
+    72 000002D0 9D                  <1> 	popfd
+    73                              <1> 
+    74                              <1> 
+    75 000002D1 31C8                <1> 	xor eax, ecx
+    76 000002D3 7401                <1> 	jz NoCPUID
+    77 000002D5 C3                  <1> 	ret
+    78                              <1> 
+    79                              <1> NoCPUID:
+    80 000002D6 E825010000          <1>     call Clear_64
+    81 000002DB BE[8D020000]        <1>     mov esi, msg_cpuid_not_found
+    82 000002E0 E81BFFFFFF          <1>     call Printf_32
+    83 000002E5 F4                  <1> 	hlt
+    54                                  
+    55                                  %include "32-bit/Paging.asm"
+    56                              <1> InitPageTable:
+    57 000002E6 60                  <1> 	pushad
+    58                              <1> 
+    59 000002E7 BF00100000          <1> 	mov edi, 0x1000
+    60 000002EC 0F22DF              <1> 	mov cr3, edi
+    61 000002EF 31C0                <1>     xor eax, eax
+    62 000002F1 B900100000          <1>     mov ecx, 4096
+    63 000002F6 F3AB                <1>     rep stosd
+    64                              <1> 
+    65 000002F8 0F20DF              <1> 	mov edi, cr3
+    66                              <1> 
+    67 000002FB C70703200000        <1> 	mov dword [edi], 0x2003
+    68 00000301 81C700100000        <1> 	add edi, 0x1000
+    69 00000307 C70703300000        <1> 	mov dword [edi], 0x3003
+    70 0000030D 81C700100000        <1> 	add edi, 0x1000
+    71 00000313 C70703400000        <1> 	mov dword [edi], 0x4003
+    72 00000319 81C700100000        <1> 	add edi, 0x1000
+    73                              <1> 
+    74 0000031F BB03000000          <1> 	mov ebx, 0x00000003
+    75 00000324 B900020000          <1> 	mov ecx, 512
+    76                              <1> 
+    77                              <1> 	SetEntry:
+    78 00000329 891F                <1> 		mov dword [edi], ebx
+    79 0000032B 81C300100000        <1> 		add ebx, 0x1000
+    80 00000331 83C708              <1> 		add edi, 8
+    81 00000334 E2F3                <1> 		loop SetEntry
+    82                              <1> 
+    83 00000336 0F20E0              <1> 	mov eax, cr4
+    84 00000339 83C820              <1> 	or eax, 1 << 5
+    85 0000033C 0F22E0              <1> 	mov cr4, eax
+    86                              <1> 
+    87 0000033F 61                  <1> 	popad
+    88 00000340 C3                  <1> 	ret
+    56                                  
+    57                                  %include "32-bit/gdt.asm"
+    58 00000341 90<rep 3h>          <1> align 4
+    59                              <1> 
+    60                              <1> gdt_64_start:
+    61                              <1> 
+    62                              <1> ; Define the null sector for the 64 bit gdt
+    63                              <1> ; Null sector is required for memory integrity check
+    64                              <1> gdt_64_null:
+    65 00000344 00000000            <1>     dd 0x00000000           ; All values in null entry are 0
+    66 00000348 00000000            <1>     dd 0x00000000           ; All values in null entry are 0
+    67                              <1> 
+    68                              <1> ; Define the code sector for the 64 bit gdt
+    69                              <1> gdt_64_code:
+    70                              <1>     ; Base:     0x00000
+    71                              <1>     ; Limit:    0xFFFFF
+    72                              <1>     ; 1st Flags:        0b1001
+    73                              <1>     ;   Present:        1
+    74                              <1>     ;   Privelege:      00
+    75                              <1>     ;   Descriptor:     1
+    76                              <1>     ; Type Flags:       0b1010
+    77                              <1>     ;   Code:           1
+    78                              <1>     ;   Conforming:     0
+    79                              <1>     ;   Readable:       1
+    80                              <1>     ;   Accessed:       0
+    81                              <1>     ; 2nd Flags:        0b1100
+    82                              <1>     ;   Granularity:    1
+    83                              <1>     ;   32-bit Default: 0
+    84                              <1>     ;   64-bit Segment: 1
+    85                              <1>     ;   AVL:            0
+    86                              <1> 
+    87 0000034C FFFF                <1>     dw 0xFFFF           ; Limit (bits 0-15)
+    88 0000034E 0000                <1>     dw 0x0000           ; Base  (bits 0-15)
+    89 00000350 00                  <1>     db 0x00             ; Base  (bits 16-23)
+    90 00000351 9A                  <1>     db 0b10011010       ; 1st Flags, Type flags
+    91 00000352 AF                  <1>     db 0b10101111       ; 2nd Flags, Limit (bits 16-19)
+    92 00000353 00                  <1>     db 0x00             ; Base  (bits 24-31)
+    93                              <1> 
+    94                              <1> ; Define the data sector for the 64 bit gdt
+    95                              <1> gdt_64_data:
+    96                              <1>     ; Base:     0x00000
+    97                              <1>     ; Limit:    0x00000
+    98                              <1>     ; 1st Flags:        0b1001
+    99                              <1>     ;   Present:        1
+   100                              <1>     ;   Privelege:      00
+   101                              <1>     ;   Descriptor:     1
+   102                              <1>     ; Type Flags:       0b0010
+   103                              <1>     ;   Code:           0
+   104                              <1>     ;   Expand Down:    0
+   105                              <1>     ;   Writeable:      1
+   106                              <1>     ;   Accessed:       0
+   107                              <1>     ; 2nd Flags:        0b1100
+   108                              <1>     ;   Granularity:    1
+   109                              <1>     ;   32-bit Default: 0
+   110                              <1>     ;   64-bit Segment: 1
+   111                              <1>     ;   AVL:            0
+   112                              <1> 
+   113 00000354 0000                <1>     dw 0x0000           ; Limit (bits 0-15)
+   114 00000356 0000                <1>     dw 0x0000           ; Base  (bits 0-15)
+   115 00000358 00                  <1>     db 0x00             ; Base  (bits 16-23)
+   116 00000359 92                  <1>     db 0b10010010       ; 1st Flags, Type flags
+   117 0000035A A0                  <1>     db 0b10100000       ; 2nd Flags, Limit (bits 16-19)
+   118 0000035B 00                  <1>     db 0x00             ; Base  (bits 24-31)
+   119                              <1> 
+   120                              <1> gdt_64_end:
+   121                              <1> 
+   122                              <1> ; Define the gdt descriptor
+   123                              <1> ; This data structure gives cpu length and start address of gdt
+   124                              <1> ; We will feed this structure to the CPU in order to set the protected mode GDT
+   125                              <1> gdt_64_descriptor:
+   126 0000035C 1700                <1>     dw gdt_64_end - gdt_64_start - 1        ; Size of GDT, one byte less than true size
+   127 0000035E [44030000]          <1>     dd gdt_64_start                         ; Start of the 64 bit gdt
+   128                              <1> 
+   129                              <1> ; Define helpers to find pointers to Code and Data segments
+   130                              <1> code_seg_64:                            equ gdt_64_code - gdt_64_start
+   131                              <1> data_seg_64:                            equ gdt_64_data - gdt_64_start
+    58                                  %include "32-bit/elevate.asm"
+    59                              <1> [bits 32]
+    60                              <1> 
+    61                              <1> Elevate_32:
+    62                              <1>     ; Elevate to 64-bit mode
+    63 00000362 B9800000C0          <1>     mov ecx, 0xC0000080
+    64 00000367 0F32                <1>     rdmsr
+    65 00000369 0D00010000          <1>     or eax, 1 << 8
+    66 0000036E 0F30                <1>     wrmsr
+    67                              <1> 
+    68                              <1>     ; Enable paging
+    69 00000370 0F20C0              <1>     mov eax, cr0
+    70 00000373 0D00000080          <1>     or eax, 1 << 31
+    71 00000378 0F22C0              <1>     mov cr0, eax
+    72                              <1>     
+    73 0000037B 0F0115[5C030000]    <1>     lgdt [gdt_64_descriptor]
+    74 00000382 EA[78040000]0800    <1>     jmp code_seg_64:LongMod
+    59                                  
+    60                                  
+    61                                  
+    62                                  ; vars
+    63 00000389 50726F6772616D204A-     msg_pm: db "Program Jumped To Protected Mod Successfully!", 0
+    63 00000392 756D70656420546F20-
+    63 0000039B 50726F746563746564-
+    63 000003A4 204D6F642053756363-
+    63 000003AD 65737366756C6C7921-
+    63 000003B6 00                 
+    64                                  
+    65                                  
+    66                                  ProtectedMod:
+    67                                  	; ------- init protected mod -------
+    68 000003B7 66B81000                	mov ax, data_seg
+    69 000003BB 8ED8                        mov ds, ax
+    70 000003BD 8ED0                        mov ss, ax
+    71 000003BF 8EC0                        mov es, ax
+    72 000003C1 8EE0                        mov fs, ax
+    73 000003C3 8EE8                        mov gs, ax
+    74                                  
+    75 000003C5 BD00000900                  mov ebp, 0x90000 ; set the pointer to a safe plase
+    76 000003CA 89EC                        mov esp, ebp
+    77                                  	; ------- init protected mod -------
+    78                                  
+    79                                  
+    80 000003CC E84BFEFFFF              	call ClearVGA
+    81 000003D1 BE[89030000]            	mov esi, msg_pm
+    82 000003D6 E825FEFFFF              	call Printf_32
+    83                                  
+    84 000003DB E88DFEFFFF              	call DetectLongMod
+    85 000003E0 E8DDFEFFFF              	call DetectCPUID
+    86                                  
+    87 000003E5 E8FCFEFFFF              	call InitPageTable
+    88 000003EA E873FFFFFF              	call Elevate_32
+    89                                  
+    90 000003EF EBFE                    	jmp $
+    91                                  	
+    92 000003F1 00<rep Fh>              times 512 - ($ - pm_entry_point) db 0x00
+    93                                  
+    94                                  
+    95                                  lm_entry_point:
+    96                                  [bits 64]
+    97                                  
+    98                                  ; Include
+    99                                  %include "64-bit/clear.asm"
+   100                              <1> [bits 64]
+   101                              <1> 
+   102                              <1> space_char: equ ` `
+   103                              <1> 
+   104                              <1> Clear_64:
+   105 00000400 57                  <1>     push rdi
+   106 00000401 50                  <1>     push rax
+   107 00000402 51                  <1>     push rcx
+   108                              <1> 
+   109 00000403 48C1E708            <1>     shl rdi, 8
+   110 00000407 4889F8              <1>     mov rax, rdi
+   111                              <1> 
+   112 0000040A B020                <1>     mov al, space_char
+   113                              <1> 
+   114 0000040C BF00800B00          <1>     mov rdi, vga_start
+   115 00000411 B9D0070000          <1>     mov rcx, vga_extent / 2
+   116                              <1> 
+   117 00000416 F366AB              <1>     rep stosw
+   118                              <1> 
+   119 00000419 59                  <1>     pop rcx
+   120 0000041A 58                  <1>     pop rax
+   121 0000041B 5F                  <1>     pop rdi
+   122 0000041C C3                  <1>     ret
+   100                                  %include "64-bit/print.asm"
+   101                              <1> [bits 64]
+   102                              <1> 
+   103                              <1> Printf_64:
+   104 0000041D 50                  <1>     push rax
+   105 0000041E 52                  <1>     push rdx
+   106 0000041F 57                  <1>     push rdi
+   107 00000420 56                  <1>     push rsi
+   108                              <1> 
+   109 00000421 BA00800B00          <1>     mov rdx, vga_start
+   110 00000426 48C1E708            <1>     shl rdi, 8
+   111                              <1> 
+   112                              <1>     ; Do main loop
+   113                              <1>     print_long_loop:
+   114                              <1>         ; If char == \0, string is done
+   115 0000042A 803E00              <1>         cmp byte[rsi], 0
+   116 0000042D 741B                <1>         je  print_long_done
+   117                              <1> 
+   118                              <1>         ; Handle strings that are too long
+   119 0000042F 4881FAA08F0B00      <1>         cmp rdx, vga_start + vga_extent
+   120 00000436 7412                <1>         je print_long_done
+   121                              <1> 
+   122                              <1>         ; Move character to al, style to ah
+   123 00000438 4889F8              <1>         mov rax, rdi
+   124 0000043B 8A06                <1>         mov al, byte[rsi]
+   125                              <1> 
+   126                              <1>         ; Print character to vga memory location
+   127 0000043D 668902              <1>         mov word[rdx], ax
+   128                              <1> 
+   129                              <1>         ; Increment counter registers
+   130 00000440 4883C601            <1>         add rsi, 1
+   131 00000444 4883C202            <1>         add rdx, 2
+   132                              <1> 
+   133                              <1>         ; Redo loop
+   134 00000448 EBE0                <1>         jmp print_long_loop
+   135                              <1> 
+   136                              <1> print_long_done:
+   137                              <1>     ; Popa does the opposite of pusha, and restores all of
+   138                              <1>     ; the registers
+   139 0000044A 5E                  <1>     pop rsi
+   140 0000044B 5F                  <1>     pop rdi
+   141 0000044C 5A                  <1>     pop rdx
+   142 0000044D 58                  <1>     pop rax
+   143                              <1> 
+   144 0000044E C3                  <1>     ret
+   101                                  
+   102                                  
+   103                                  ; vars
+   104 0000044F 50726F6772616D204A-     msg_lm: db "Program Jumped To Long Mod Successfully!", 0
+   104 00000458 756D70656420546F20-
+   104 00000461 4C6F6E67204D6F6420-
+   104 0000046A 537563636573736675-
+   104 00000473 6C6C792100         
+   105                                  style_blue:	equ 0x1F
+   106                                  
+   107                                  
+   108                                  LongMod:
+   109                                  	; --------- init long mod ---------
+   110 00000478 FA                          cli
+   111 00000479 66B81000                    mov ax, data_seg_64
+   112 0000047D 8ED8                        mov ds, ax              
+   113 0000047F 8EC0                        mov es, ax              
+   114 00000481 8EE0                        mov fs, ax              
+   115 00000483 8EE8                        mov gs, ax              
+   116 00000485 8ED0                        mov ss, ax              
+   117                                  	
+   118                                  	;mov rsp, 0x90000
+   119                                      ;mov rbp, rsp
+   120                                  	; --------- init long mod ---------
+   121                                  
+   122                                  
+   123 00000487 BF1F000000              	mov rdi, style_blue
+   124 0000048C E86FFFFFFF              	call Clear_64
+   125                                  
+   126 00000491 BF1F000000              	mov rdi, style_blue
+   127 00000496 48BE-                   	mov rsi, msg_lm
+   127 00000498 [4F04000000000000] 
+   128 000004A0 E878FFFFFF              	call Printf_64
+   129                                  
+   130                                  
+   131                                  	; --------- kernel ---------
+   132 000004A5 E9(00820000)            	jmp 0x8200
+   133                                  
+   134 000004AA EBFE                    	jmp $
+   135                                  
+   136 000004AC 00<rep 154h>            times 512 - ($ - lm_entry_point) db 0x00
